@@ -35,6 +35,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_aja_video_src_debug);
 #define DEFAULT_MODE               (GST_AJA_MODE_RAW_720_8_5994p)
 #define DEFAULT_DEVICE_IDENTIFIER  ("0")
 #define DEFAULT_INPUT_MODE         (GST_AJA_VIDEO_INPUT_MODE_SDI)
+#define DEFAULT_SDI_INPUT_MODE     (SDI_INPUT_MODE_SINGLE_LINK)
 #define DEFAULT_INPUT_CHANNEL      (0)
 #define DEFAULT_PASSTHROUGH        (FALSE)
 #define DEFAULT_QUEUE_SIZE         (5)
@@ -49,6 +50,7 @@ enum
   PROP_MODE,
   PROP_DEVICE_IDENTIFIER,
   PROP_INPUT_MODE,
+  PROP_SDI_INPUT_MODE,
   PROP_INPUT_CHANNEL,
   PROP_PASSTHROUGH,
   PROP_QUEUE_SIZE,
@@ -161,6 +163,13 @@ gst_aja_video_src_class_init (GstAjaVideoSrcClass * klass)
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
               G_PARAM_CONSTRUCT)));
 
+  g_object_class_install_property (gobject_class, PROP_SDI_INPUT_MODE,
+      g_param_spec_enum ("sdi-input-mode", "SDI Input Mode",
+          "SDI Input Mode to use for playback",
+          GST_TYPE_AJA_SDI_INPUT_MODE, DEFAULT_SDI_INPUT_MODE,
+          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+              G_PARAM_CONSTRUCT)));
+
   g_object_class_install_property (gobject_class, PROP_INPUT_CHANNEL,
       g_param_spec_uint ("input-channel",
           "Input channel",
@@ -234,6 +243,7 @@ gst_aja_video_src_init (GstAjaVideoSrc * src)
   src->modeEnum = DEFAULT_MODE;
   src->input_channel = DEFAULT_INPUT_CHANNEL;
   src->input_mode = DEFAULT_INPUT_MODE;
+  src->sdi_input_mode = DEFAULT_SDI_INPUT_MODE;
   src->passthrough = DEFAULT_PASSTHROUGH;
   src->device_identifier = g_strdup (DEFAULT_DEVICE_IDENTIFIER);
   src->queue_size = DEFAULT_QUEUE_SIZE;
@@ -280,6 +290,10 @@ gst_aja_video_src_set_property (GObject * object, guint property_id,
 
     case PROP_INPUT_MODE:
       src->input_mode = (GstAjaVideoInputMode) g_value_get_enum (value);
+      break;
+
+    case PROP_SDI_INPUT_MODE:
+      src->sdi_input_mode = (SDIInputMode) g_value_get_enum (value);
       break;
 
     case PROP_INPUT_CHANNEL:
@@ -369,6 +383,10 @@ gst_aja_video_src_get_property (GObject * object, guint property_id,
 
     case PROP_INPUT_MODE:
       g_value_set_enum (value, src->input_mode);
+      break;
+
+    case PROP_SDI_INPUT_MODE:
+      g_value_set_enum (value, src->sdi_input_mode);
       break;
 
     case PROP_INPUT_CHANNEL:
@@ -614,7 +632,7 @@ gst_aja_video_src_open (GstAjaVideoSrc * src)
       src->input->mode->is422,
       false,
       false,
-      src->input->mode->isQuad, timecode_mode, false, src->output_cc ? true : false,
+      src->sdi_input_mode, timecode_mode, false, src->output_cc ? true : false,
       src->passthrough ? true : false);
   if (!AJA_SUCCESS (status)) {
     GST_ERROR_OBJECT (src, "Failed to initialize input");
@@ -1221,18 +1239,21 @@ retry:
     if (src->transferCharacteristics == 0) {
       // SDR-TV is the default
     } else if (src->transferCharacteristics == 1) {
-      src->info.colorimetry.transfer = GST_VIDEO_TRANSFER_SMPTE2084;
-    } else if (src->transferCharacteristics == 2) {
       src->info.colorimetry.transfer = GST_VIDEO_TRANSFER_ARIB_STD_B67;
+    } else if (src->transferCharacteristics == 2) {
+      src->info.colorimetry.transfer = GST_VIDEO_TRANSFER_SMPTE2084;
     }
 #endif
     if (src->colorimetry == 0) {
       if (src->info.height < 720) {
         src->info.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_BT601;
         src->info.colorimetry.primaries = GST_VIDEO_COLOR_PRIMARIES_SMPTE170M;
-      } else {
+      } else if (src->info.height < 2160) {
         src->info.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_BT709;
         src->info.colorimetry.primaries = GST_VIDEO_COLOR_PRIMARIES_BT709;
+      } else {
+        src->info.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_BT2020;
+        src->info.colorimetry.primaries = GST_VIDEO_COLOR_PRIMARIES_BT2020;
       }
     } else if (src->colorimetry == 2) {
       src->info.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_BT2020;
